@@ -26,5 +26,8 @@
   },
   "allowScripts": {
     "mongodb-memory-server@10.4.3": true
+  },
+  "engines": {
+    "node": ">=20.19.0"
   }
 }
