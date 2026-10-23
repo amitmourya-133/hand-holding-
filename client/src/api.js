@@ -1,5 +1,10 @@
 import React from 'react';
 
+// Production API URL: overridden via VITE_API_URL env var
+// When NODE_ENV=production and VITE_API_URL is set, requests use the actual backend origin.
+// When unset (development), requests go through the Vite /api proxy to localhost:5000.
+let API_BASE = import.meta.env.VITE_API_URL || '/api';
+
 const COOKIE_NAME = 'hh_token';
 
 export const getToken = () => {
@@ -58,7 +63,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
