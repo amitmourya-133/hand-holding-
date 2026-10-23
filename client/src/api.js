@@ -3,33 +3,26 @@ import React from 'react';
 // Production API URL: overridden via VITE_API_URL env var
 // When NODE_ENV=production and VITE_API_URL is set, requests use the actual backend origin.
 // When unset (development), requests go through the Vite /api proxy to localhost:5000.
-let API_BASE = import.meta.env.VITE_API_URL || '/api';
+// VITE_API_URL is the backend ORIGIN only (e.g. https://api.example.com).
+// Requests are made to "<origin>/api", or the Vite proxy "/api" in development.
+const API_ROOT = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+
+// Origin used for non-fetch transports (e.g. Socket.IO). Empty in dev so the
+// Vite proxy handles it and requests stay same-origin.
+export const API_ORIGIN = API_ROOT;
+const API_BASE = API_ROOT ? `${API_ROOT}/api` : '/api';
 
 const COOKIE_NAME = 'hh_token';
 
-export const getToken = () => {
-  // Try cookies first (HttpOnly, set by server via res.cookie)
-  if (typeof document !== 'undefined') {
-    const match = document.cookie.match(new RegExp('(?:(?:^|;)\s*' + COOKIE_NAME + ')=([^;]*)'));
-    if (match?.[1]) return match[1];
-  }
-  // Fall back to localStorage for transitional support
-  return localStorage.getItem(COOKIE_NAME);
-};
+export const getToken = () => localStorage.getItem(COOKIE_NAME);
 
 export const setToken = (t) => {
-  if (typeof document !== 'undefined') {
-    // Set cookie with same options as backend
-    const options = 'httpOnly;secure=' + (process.env.NODE_ENV === 'production') + ';SameSite=' + (process.env.NODE_ENV === 'production' ? 'none' : 'lax') + ';path=/;max-age=' + (7 * 24 * 60 * 60);
-    document.cookie = COOKIE_NAME + '=' + t + '; ' + options;
-  }
+  // The server sets the real HttpOnly session cookie; JS cannot and must not
+  // duplicate it. Store the token for the Authorization header fallback.
   localStorage.setItem(COOKIE_NAME, t);
 };
 
 export const clearToken = () => {
-  if (typeof document !== 'undefined') {
-    document.cookie = COOKIE_NAME + '=; Max-Age=0; Path=/;';
-  }
   localStorage.removeItem(COOKIE_NAME);
 };
 
@@ -66,6 +59,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
+    credentials: 'include',
     body: body ? JSON.stringify(body) : undefined,
   });
 
@@ -82,4 +76,24 @@ export async function api(path, { method = 'GET', body } = {}) {
     throw err;
   }
   return data;
+}
+
+export async function apiBlob(path) {
+  const headers = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}${path}`, { headers, credentials: 'include' });
+
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`;
+    try {
+      const data = await res.json();
+      if (data?.error) message = data.error;
+    } catch {
+      /* response was not JSON */
+    }
+    throw new Error(message);
+  }
+  return res.blob();
 }

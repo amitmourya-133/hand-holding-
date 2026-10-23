@@ -52,7 +52,7 @@ export default function Mentors() {
           <p className="muted small">Based on your department and skills</p>
           <div className="row row-cols-1 row-cols-lg-3 g-4">
             {matches.map((m) => (
-              <div key={m.user._id} className="col">
+              <div key={m.user.id || m.user._id} className="col">
                 <div className="card h-100">
                   <div className="card-body">
                     <Avatar user={m.user} size={60} />

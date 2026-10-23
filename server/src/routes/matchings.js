@@ -1,14 +1,12 @@
 import { Router } from 'express';
-import mongoose from 'mongoose';
 import { User } from '../models.js';
 import { requireAuth } from '../auth.js';
 
 const router = Router();
-const oid = (id) => new mongoose.Types.ObjectId(String(id));
 
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const { role } = req.user;
+    const role = req.userRole;
 
     if (role === 'mentee') {
       const menteeId = req.userId;
@@ -48,12 +46,11 @@ async function findMentorMatch(menteeId) {
 
   const menteeSkills = new Set(mentee.skills || []);
   const menteeDept = mentee.department || '';
-  const menteeAvailability = mentee.availability || 'available';
 
-  // Build query for compatible mentors
+  // Build query for compatible, available mentors
   const query = {
     role: 'mentor',
-    availability: menteeAvailability,
+    availability: { $ne: 'unavailable' },
     mentorType: { $ne: '' },
   };
 
@@ -70,7 +67,6 @@ async function findMentorMatch(menteeId) {
     const mentorSkills = new Set(m.skills || []);
     const skillOverlap = [...menteeSkills].filter((s) => mentorSkills.has(s)).length;
     const deptMatch = menteeDept && menteeDept === (m.department || '') ? 2 : 1;
-    const totalSkills = menteeSkills.size + mentorSkills.size;
     const matchScore = skillOverlap + deptMatch;
 
     return {

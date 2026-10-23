@@ -1,0 +1,26 @@
+# Ignore environment variables and local configuration
+.env
+*.env
+!.env.example
+
+# Ignore local artifacts and backups
+*.pid
+*.bak
+test_output.txt
+vercel_list.txt
+.pytest_cache/
+coverage/
+
+# Ignore node_modules
+node_modules/
+
+# Ignore dist and build artifacts
+dist/
+build/
+
+# Ignore IDE/VS Code settings
+.vscode/
+.idea/
+
+# Ignore logs
+*.log
