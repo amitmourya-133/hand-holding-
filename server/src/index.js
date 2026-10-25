@@ -159,7 +159,12 @@ app.use((err, req, res, next) => {
 async function main() {
   await connectDB();
 
-  if (process.env.SEED !== 'false') {
+  // Seed only when explicitly enabled. In production, never auto-seed unless
+  // SEED is explicitly set to 'true' (prevents accidental demo data creation).
+  const seedEnabled =
+    process.env.SEED === 'true' ||
+    (process.env.NODE_ENV !== 'production' && process.env.SEED !== 'false');
+  if (seedEnabled) {
     const count = await User.countDocuments();
     if (count === 0) {
       const { seed } = await import('./seed.js');

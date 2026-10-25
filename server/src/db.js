@@ -17,7 +17,7 @@ export async function connectDB() {
         serverSelectionTimeoutMS: 2500,
         socketTimeoutMS: 45000,
       });
-      console.log('[db] Connected to MongoDB Atlas');
+      console.log('[db] Connected to MongoDB (database: ' + mongoose.connection.name + ')');
       return;
     } catch (err) {
       console.error('[db] MongoDB Atlas connection failed');
@@ -34,7 +34,7 @@ export async function connectDB() {
     await mongoose.connect('mongodb://127.0.0.1:27017/hand_holding', {
       serverSelectionTimeoutMS: 2500,
     });
-    console.log('[db] Connected to local MongoDB (hand_holding)');
+    console.log('[db] Connected to local MongoDB (database: ' + mongoose.connection.name + ')');
     return;
   } catch {
     console.error('[db] Local MongoDB not available and no MONGODB_URI set');
