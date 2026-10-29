@@ -265,12 +265,20 @@ export async function seed() {
 
 if (process.argv[1] && process.argv[1].endsWith('seed.js')) {
   const { connectDB, disconnectDB } = await import('./db.js');
-  await connectDB();
-  const count = await User.countDocuments();
-  if (count > 0) {
-    console.log('[seed] Database already has users, skipping. Delete the DB to re-seed.');
-  } else {
-    await seed();
+  try {
+    await connectDB();
+  } catch (err) {
+    console.error('[seed] Could not connect to database:', err && err.message ? err.message : err);
+    process.exit(1);
   }
-  await disconnectDB();
+  try {
+    const count = await User.countDocuments();
+    if (count > 0) {
+      console.log('[seed] Database already has users, skipping. Delete the DB to re-seed.');
+    } else {
+      await seed();
+    }
+  } finally {
+    await disconnectDB();
+  }
 }

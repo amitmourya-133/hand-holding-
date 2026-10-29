@@ -190,6 +190,12 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Failed to start server:', err);
+  console.error('Failed to start server:', err && err.message ? err.message : err);
+  if (err && err.category) {
+    console.error('[startup] Failure category:', err.category);
+  }
+  if (err && err.errorType) {
+    console.error('[startup] Error type:', err.errorType);
+  }
   process.exit(1);
 });

@@ -3,8 +3,6 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-let memoryServer = null;
-
 /**
  * Validate and normalize a MongoDB connection string without exposing it.
  * Returns the trimmed URI, or null when it is not set.
@@ -67,19 +65,15 @@ function classifyMongoError(err) {
 }
 
 export async function connectDB() {
-  let uri;
-  try {
-    uri = validateMongoUri(process.env.MONGODB_URI);
-  } catch (err) {
-    console.error('[db] MONGODB_URI is invalid:', err.message);
-    console.error('[db] Correct it in Render Dashboard -> hand-holding-server -> Environment, then redeploy.');
-    process.exit(1);
+  // If already connected, return early to avoid duplicate connections
+  if (mongoose.connection.readyState === 1) {
+    return;
   }
 
+  const uri = validateMongoUri(process.env.MONGODB_URI);
+
   if (!uri && process.env.NODE_ENV === 'production') {
-    console.error('[db] MONGODB_URI must be set in production');
-    console.error('[db] Set it in Render Dashboard -> hand-holding-server -> Environment, then redeploy.');
-    process.exit(1);
+    throw new Error('MONGODB_URI must be set in production. Set it in Render Dashboard -> hand-holding-server -> Environment, then redeploy.');
   }
 
   if (uri) {
@@ -92,15 +86,17 @@ export async function connectDB() {
       return;
     } catch (err) {
       const category = classifyMongoError(err);
+      const error = new Error(`MongoDB connection failed: ${category}`);
+      error.cause = err;
+      error.category = category;
+      error.errorType = err && err.constructor ? err.constructor.name : 'Error';
       console.error('[db] MongoDB connection failed');
-      console.error('[db] Error type:', err && err.constructor ? err.constructor.name : 'Error');
+      console.error('[db] Error type:', error.errorType);
       console.error('[db] Category:', category);
       if (category === 'malformed URI') {
         console.error('[db] MONGODB_URI must be a mongodb:// or mongodb+srv:// string only: no quotes, no "MONGODB_URI=" prefix, no placeholders.');
       }
-      // Do NOT fall back to in-memory server in normal development
-      // Exit so the API does not accept requests without a database
-      process.exit(1);
+      throw error;
     }
   }
 
@@ -111,14 +107,19 @@ export async function connectDB() {
     });
     console.log('[db] Connected to local MongoDB (database: ' + mongoose.connection.name + ')');
     return;
-  } catch {
+  } catch (err) {
+    const error = new Error('Local MongoDB not available and no MONGODB_URI set');
+    error.cause = err;
     console.error('[db] Local MongoDB not available and no MONGODB_URI set');
-    // Do NOT silently fall back to MongoDB Memory Server
-    process.exit(1);
+    throw error;
   }
 }
 
 export async function disconnectDB() {
-  await mongoose.disconnect();
-  if (memoryServer) await memoryServer.stop();
+  try {
+    await mongoose.disconnect();
+  } catch (err) {
+    console.error('[db] Error during disconnect:', err && err.constructor ? err.constructor.name : 'Error');
+    // Do not throw - disconnect should be safe to call
+  }
 }
