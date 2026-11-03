@@ -18,6 +18,7 @@ import ProgressReports from './pages/ProgressReports.jsx';
 import MyQuestions from './pages/MyQuestions.jsx';
 import OpenQuestions from './pages/OpenQuestions.jsx';
 import QuestionDetails from './pages/QuestionDetails.jsx';
+import AskQuestion from './pages/AskQuestion.jsx';
 
 function Protected({ children, roles }) {
   const { user, loading } = useAuth();
