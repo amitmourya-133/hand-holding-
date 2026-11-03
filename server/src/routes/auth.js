@@ -43,12 +43,37 @@ function csrfTokenValidator(req, res, next) {
   next();
 }
 
-// Generate a random CSRF token
-export function generateCSRFToken() {
-  return crypto.randomBytes(32).toString('hex');
+// Rate limiters applied as middleware on specific routes
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many login attempts from this IP, please try again later.' },
+});
+const registerLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many registration attempts from this IP, please try again later.' },
+});
+const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3,
+  message: { error: 'Too many password reset attempts from this IP, please try again later.' },
+});
+
+// CSRF validator middleware - reused across routes
+function csrfValidator(req, res, next) {
+  const headerToken = req.headers['x-xsrf-token'];
+  const cookieToken = req.cookies?.['XSRF-TOKEN'];
+  if (!headerToken || !cookieToken) {
+    return res.status(403).json({ error: 'CSRF token missing' });
+  }
+  if (headerToken !== cookieToken) {
+    return res.status(403).json({ error: 'CSRF token mismatch' });
+  }
+  next();
 }
 
-router.post('/register', async (req, res) => {
+router.post('/register', loginLimiter, async (req, res) => {
   try {
     const { name, email, password, role = 'mentee', mentorType = '', department = '', batch = '', company = '', designation = '', skills = [], bio = '' } = req.body;
 
@@ -86,7 +111,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
@@ -154,7 +179,7 @@ router.post('/change-password', requireAuth, csrfTokenValidator, async (req, res
   }
 });
 
-router.post('/forgot', async (req, res) => {
+router.post('/forgot', passwordResetLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });

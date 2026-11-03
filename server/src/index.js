@@ -80,26 +80,8 @@ app.post('/api/csp-report', (req, res) => {
   res.status(204).send();
 });
 
-// Stricter rate limits for authentication endpoints
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  message: { error: 'Too many login attempts from this IP, please try again later.' },
-});
-const registerLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { error: 'Too many registration attempts from this IP, please try again later.' },
-});
-const passwordResetLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 3,
-  message: { error: 'Too many password reset attempts from this IP, please try again later.' },
-});
-
-app.use('/api/auth/login', loginLimiter);
-app.use('/api/auth/register', registerLimiter);
-app.use('/api/auth/forgot', passwordResetLimiter);
+// Rate limiters are applied as middleware on specific routes in authRoutes.js
+// to ensure proper route matching. The general API rate limit is applied below.
 
 // General API rate limit
 const generalLimiter = rateLimit({
