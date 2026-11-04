@@ -74,6 +74,11 @@ function csrfValidator(req, res, next) {
   next();
 }
 
+// Generate a random CSRF token
+function generateCSRFToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
 router.post('/register', loginLimiter, async (req, res) => {
   try {
     const { name, email, password, role = 'mentee', mentorType = '', department = '', batch = '', company = '', designation = '', skills = [], bio = '' } = req.body;
