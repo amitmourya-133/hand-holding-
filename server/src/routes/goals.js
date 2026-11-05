@@ -31,9 +31,10 @@ router.post('/', async (req, res) => {
     if (!['mentor', 'admin'].includes(req.userRole)) {
       return res.status(403).json({ error: 'Only mentors can create goals' });
     }
-    const { menteeId, title, description = '', dueDate } = req.body;
+    const { menteeId, title, description = '', dueDate, category = '' } = req.body;
     const cleanTitle = typeof title === 'string' ? title.trim().slice(0, 200) : '';
     const cleanDescription = typeof description === 'string' ? description.trim().slice(0, 2000) : '';
+    const cleanCategory = typeof category === 'string' ? category.trim().slice(0, 100) : '';
     if (!menteeId || !cleanTitle) return res.status(400).json({ error: 'Mentee and title are required' });
     if (!/^[0-9a-fA-F]{24}$/.test(String(menteeId))) return res.status(400).json({ error: 'Invalid mentee id' });
 
@@ -58,6 +59,8 @@ router.post('/', async (req, res) => {
       title: cleanTitle,
       description: cleanDescription,
       dueDate: due,
+      category: cleanCategory,
+      history: [`Goal created: ${cleanTitle}`],
     });
 
     await notify(menteeId, {
@@ -65,6 +68,7 @@ router.post('/', async (req, res) => {
       title: 'New goal assigned',
       body: title,
       link: '/goals',
+      category: cleanCategory,
     });
 
     res.status(201).json({ goal });
@@ -83,10 +87,16 @@ router.patch('/:id', async (req, res) => {
   const isAdmin = req.userRole === 'admin';
   if (!isMentor && !isMentee && !isAdmin) return res.status(403).json({ error: 'Not allowed' });
 
-  const { status, title, description, dueDate } = req.body;
+  const { status, title, description, dueDate, category, mentorFeedback } = req.body;
   const previous = goal.status;
 
   if (status && ['not_started', 'in_progress', 'completed'].includes(status)) goal.status = status;
+  if (category !== undefined && (isMentor || isAdmin)) {
+    goal.category = typeof category === 'string' ? category.trim().slice(0, 100) : '';
+  }
+  if (mentorFeedback !== undefined && (isMentor || isAdmin)) {
+    goal.mentorFeedback = typeof mentorFeedback === 'string' ? mentorFeedback.trim().slice(0, 2000) : '';
+  }
   if (isMentor || isAdmin) {
     if (title !== undefined) {
       const cleanTitle = typeof title === 'string' ? title.trim().slice(0, 200) : '';
@@ -107,6 +117,13 @@ router.patch('/:id', async (req, res) => {
       }
     }
   }
+
+  // Track history on status change
+  if (status && status !== previous) {
+    if (!goal.history) goal.history = [];
+    goal.history.push(`Status changed from ${previous} to ${status} on ${new Date().toISOString()}`);
+  }
+
   await goal.save();
 
   if (previous !== goal.status) {
@@ -114,8 +131,9 @@ router.patch('/:id', async (req, res) => {
     await notify(isMentee ? goal.mentor : goal.mentee, {
       type: 'goal',
       title: 'Goal status updated',
-      body: `${who} "${goal.title}" → ${goal.status.replace('_', ' ')}`,
+      body: `${who} "${goal.title}" - ${goal.status.replace('_', ' ')}`,
       link: '/goals',
+      category: goal.category,
     });
   }
 

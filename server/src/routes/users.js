@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { User, Connection, Question, Answer } from '../models.js';
+import { User, Connection, Question, Answer, Conversation } from '../models.js';
 import { requireAuth, requireRole } from '../auth.js';
 import { notify } from '../helpers.js';
 import { createRouter } from '../asyncRouter.js';
@@ -482,5 +482,246 @@ router.put('/settings', requireRole('admin'), async (req, res) => {
   await user.save();
   res.json({ ok: true, user: user.toPublic() });
 });
+
+// AI Mentor Service
+// GET /ai/health — check if AI service is configured
+router.get('/ai/health', async (req, res) => {
+  const aiKey = process.env.AI_PROVIDER_KEY;
+  if (!aiKey) {
+    return res.json({ configured: false, service: 'external-ai', message: 'AI provider not configured. Set AI_PROVIDER_KEY environment variable to enable.' });
+  }
+  return res.json({ configured: true, service: 'external-ai' });
+});
+
+// POST /ai/chat — send message to AI mentor
+// Mentee-only endpoint. Saves conversation with aiType marker.
+// Message body: { conversationId, role, content }
+// conversationId: existing conversation ID to continue, or new ID to start fresh
+router.post('/ai/chat', requireAuth, async (req, res) => {
+  try {
+    const { conversationId, role, content } = req.body;
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({ error: 'Message content is required' });
+    }
+    if (role !== 'mentee' && role !== 'student') {
+      return res.status(403).json({ error: 'Only mentees can use the AI mentor' });
+    }
+
+    const aiKey = process.env.AI_PROVIDER_KEY;
+    if (!aiKey) {
+      return res.status(503).json({ error: 'AI service not configured. Please contact admin.' });
+    }
+
+    // Reuse existing conversation if provided
+    let conversation = null;
+    if (conversationId) {
+      conversation = await Conversation.findById(conversationId);
+      if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+      // Verify user owns this conversation
+      const isParticipant = conversation.participants.some((p) => String(p) === String(req.userId));
+      if (!isParticipant) return res.status(403).json({ error: 'Access denied. You do not own this conversation.' });
+    }
+
+    // Create new conversation if not provided
+    if (!conversation) {
+      conversation = new Conversation({
+        pairKey: [String(req.userId), 'ai-mentor'].sort().join('_'),
+        participants: [req.userId, { ai: true }],
+        aiType: 'ai-mentor',
+      });
+      await conversation.save();
+    }
+
+    // Add user message
+    conversation.lastMessage = {
+      text: content,
+      sender: req.userId,
+      at: new Date(),
+      ai: false,
+    };
+    // Initialize unread if needed
+    if (!conversation.unread) conversation.unread = {};
+    conversation.unread[req.userId] = (conversation.unread[req.userId] || 0) + 1;
+    await conversation.save();
+
+    // Call external AI provider
+    const aiResponse = await fetchExternalAI(content, conversation);
+
+    // Add AI response to conversation
+    conversation.lastMessage = {
+      text: aiResponse.reply,
+      sender: 'ai-mentor',
+      at: new Date(),
+      ai: true,
+    };
+    // Mark user's unread count back (AI response is "read")
+    if (conversation.unread && conversation.unread[req.userId]) {
+      conversation.unread[req.userId] = Math.max(0, conversation.unread[req.userId] - 1);
+    }
+    await conversation.save();
+
+    res.json({ ok: true, conversation, aiReply: aiResponse.reply });
+  } catch (err) {
+    console.error('AI mentor error:', err);
+    res.status(500).json({ error: 'AI mentor service error' });
+  }
+});
+
+// Helper: fetch from external AI provider
+async function fetchExternalAI(message, conversation) {
+  const aiKey = process.env.AI_PROVIDER_KEY;
+  const apiUrl = process.env.AI_PROVIDER_URL || 'https://api.openai.com/v1/chat/completions';
+
+  const systemPrompt = 'You are HH AI Mentor, a helpful mentorship assistant for the Hand Holding Mini platform. Provide guidance on career planning, skill development, interview preparation, and academic questions. Keep responses concise and educational. Do not invent private user data or access internal APIs. If the student asks about something you cannot help with, suggest contacting a human mentor.';
+
+  const payload = {
+    model: process.env.AI_PROVIDER_MODEL || 'gpt-3.5-turbo',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: message },
+    ],
+    temperature: 0.7,
+  };
+
+  const headers = {
+    'Authorization': `Bearer ${aiKey}`,
+    'Content-Type': 'application/json',
+  };
+
+  try {
+    const fetch = require('node-fetch');
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`AI provider responded with ${response.status}`);
+    }
+
+    const data = await response.json();
+    const reply = data.choices?.[0]?.message?.content || 'I am unable to respond at this time. Please try again later.';
+
+    return { reply };
+  } catch (err) {
+    console.error('External AI fetch error:', err);
+    return { reply: 'I am experiencing technical difficulties. Please try again later, or contact a human mentor for assistance.' };
+  }
+}
+
+// Smart Mentor Matching
+// GET /api/users/matching — get mentor recommendations for the authenticated mentee
+router.get('/matching', requireAuth, async (req, res) => {
+  try {
+    if (req.userRole !== 'mentee') {
+      return res.status(403).json({ error: 'Only mentees can get mentor recommendations' });
+    }
+
+    const mentee = await User.findById(req.userId);
+    if (!mentee) return res.status(404).json({ error: 'User not found' });
+
+    const matching = await computeMentorMatching(mentee);
+    res.json({ matching });
+  } catch (err) {
+    console.error('Mentor matching error:', err);
+    res.status(500).json({ error: 'Failed to compute mentor matching' });
+  }
+});
+
+// Helper: compute mentor matches based on student profile
+async function computeMentorMatching(mentee) {
+  const menteeSkills = new Set((mentee.skills || []).map((s) => String(s).toLowerCase()));
+  const menteeDept = mentee.department || '';
+  const menteeInterests = mentee.bio ? mentee.bio.toLowerCase().split(/\\s+/) : [];
+  const menteeCareerGoals = mentee.bio ? extractCareerGoals(mentee.bio) : [];
+
+  // Fetch all available mentors
+  const mentors = await User.find({ role: 'mentor', availability: { $ne: 'unavailable' } })
+    .select('name department skills availability mentorType bio ratingAvg ratingCount');
+
+  const matches = mentors.map((mentor) => {
+    const mentorSkills = new Set(mentor.skills?.map((s) => String(s).toLowerCase()) || []);
+
+    // Skills compatibility (35% weight)
+    const skillIntersection = menteeSkills.filter((s) => mentorSkills.has(s));
+    const skillRatio = menteeSkills.size > 0 ? skillIntersection.length / menteeSkills.size : 0;
+    const skillScore = skillRatio * 35;
+
+    // Department compatibility (10% weight)
+    const deptMatch = menteeDept && menteeDept === (mentor.department || '') ? 10 : 0;
+
+    // Interest compatibility (15% weight)
+    const interestIntersection = menteeInterests.filter((i) =>
+      (mentor.bio || '').toLowerCase().includes(i)
+    );
+    const interestRatio = menteeInterests.length > 0 ? interestIntersection.length / menteeInterests.size : 0;
+    const interestScore = interestRatio * 15;
+
+    // Availability (10% weight)
+    const availabilityScore = mentor.availability === 'available' ? 10 : 0;
+
+    // Experience relevance (5% weight) - based on rating
+    const experienceScore = (mentor.ratingAvg || 0) / 5 * 5;
+
+    // Career goal compatibility (25% weight)
+    const careerScore = computeCareerGoalCompatibility(menteeCareerGoals, mentor.bio);
+
+    const totalScore = skillScore + deptMatch + interestScore + availabilityScore + experienceScore + careerScore;
+
+    return {
+      mentor: {
+        id: mentor._id,
+        name: mentor.name,
+        department: mentor.department,
+        mentorType: mentor.mentorType,
+        availability: mentor.availability,
+        ratingAvg: mentor.ratingAvg,
+        ratingCount: mentor.ratingCount,
+        bio: mentor.bio,
+        skills: mentor.skills,
+      },
+      score: Math.round(totalScore),
+      breakdown: {
+        skills: Math.round(skillScore),
+        department: deptMatch,
+        interests: Math.round(interestScore),
+        availability: availabilityScore,
+        experience: Math.round(experienceScore),
+        career: Math.round(careerScore),
+      },
+    };
+  });
+
+  // Sort by score descending, then by rating average descending
+  matches.sort((a, b) => b.score - a.score || b.mentor.ratingAvg - a.mentor.ratingAvg);
+
+  // Return top 5 matches
+  return matches.slice(0, 5);
+}
+
+// Helper: extract career goals from bio text
+function extractCareerGoals(bio) {
+  const goals = [];
+  const lowerBio = (bio || '').toLowerCase();
+  if (lowerBio.includes('software') || lowerBio.includes('developer') || lowerBio.includes('program')) goals.push('software-development');
+  if (lowerBio.includes('data') || lowerBio.includes('analytic')) goals.push('data-analysis');
+  if (lowerBio.includes('web') || lowerBio.includes('frontend') || lowerBio.includes('backend')) goals.push('web-development');
+  if (lowerBio.includes('cyber') || lowerBio.includes('security')) goals.push('cybersecurity');
+  if (lowerBio.includes('management') || lowerBio.includes('lead')) goals.push('management');
+  if (lowerBio.includes('higher') || lowerBio.includes('degree') || lowerBio.includes('masters')) goals.push('higher-education');
+  return goals;
+}
+
+// Helper: compute career goal compatibility
+function computeCareerGoalCompatibility(studentGoals, mentorBio) {
+  if (!studentGoals.length || !mentorBio) return 0;
+  const lowerBio = (mentorBio || '').toLowerCase();
+  let matches = 0;
+  studentGoals.forEach((goal) => {
+    if (lowerBio.includes(goal)) matches++;
+  });
+  return studentGoals.length > 0 ? (matches / studentGoals.length) * 25 : 0;
+}
 
 export default router;

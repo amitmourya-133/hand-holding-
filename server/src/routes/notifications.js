@@ -6,13 +6,24 @@ const router = createRouter();
 router.use(requireAuth);
 
 router.get('/', async (req, res) => {
-  const notifications = await Notification.find({ user: req.userId }).sort({ createdAt: -1 }).limit(30);
+  const filter = { user: req.userId };
+  if (req.query.category) {
+    filter.category = req.query.category;
+  }
+  if (req.query.type) {
+    filter.type = req.query.type;
+  }
+  const notifications = await Notification.find(filter).sort({ createdAt: -1 }).limit(30);
   const unreadCount = await Notification.countDocuments({ user: req.userId, read: false });
   res.json({ notifications, unreadCount });
 });
 
 router.post('/read-all', async (req, res) => {
-  await Notification.updateMany({ user: req.userId, read: false }, { $set: { read: true } });
+  const filter = { user: req.userId, read: false };
+  if (req.query.category) {
+    filter.category = req.query.category;
+  }
+  await Notification.updateMany(filter, { $set: { read: true } });
   res.json({ ok: true });
 });
 

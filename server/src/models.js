@@ -68,6 +68,7 @@ const conversationSchema = new Schema(
       at: { type: Date },
     },
     unread: { type: Object, default: {} },
+    aiType: { type: String, default: '' },
   },
   { timestamps: true }
 );
@@ -115,6 +116,9 @@ const goalSchema = new Schema(
     description: { type: String, default: '' },
     dueDate: { type: Date },
     status: { type: String, enum: ['not_started', 'in_progress', 'completed'], default: 'not_started' },
+    category: { type: String, default: '' },
+    history: [{ type: String, default: '' }],
+    mentorFeedback: { type: String, default: '' },
   },
   { timestamps: true }
 );
@@ -144,6 +148,7 @@ const notificationSchema = new Schema(
     body: { type: String, default: '' },
     link: { type: String, default: '' },
     read: { type: Boolean, default: false },
+    category: { type: String, default: '' },
   },
   { timestamps: true }
 );
@@ -157,6 +162,37 @@ export const Meeting = model('Meeting', meetingSchema);
 export const Goal = model('Goal', goalSchema);
 export const Feedback = model('Feedback', feedbackSchema);
 export const Notification = model('Notification', notificationSchema);
+
+// Career Roadmap
+const roadmapSchema = new Schema(
+  {
+    user: { type: Types.ObjectId, ref: 'User', required: true },
+    title: { type: String, required: true, trim: true },
+    description: { type: String, default: '' },
+    category: { type: String, default: '' },
+    status: { type: String, enum: ['not_started', 'in_progress', 'completed'], default: 'not_started' },
+    createdBy: { type: Types.ObjectId, ref: 'User' },
+  },
+  { timestamps: true }
+);
+roadmapSchema.index({ user: 1 });
+
+const milestoneSchema = new Schema(
+  {
+    roadmap: { type: Types.ObjectId, ref: 'Roadmap', required: true },
+    title: { type: String, required: true, trim: true },
+    description: { type: String, default: '' },
+    order: { type: Number, default: 0 },
+    completed: { type: Boolean, default: false },
+    completedAt: { type: Date },
+    dueDate: { type: Date },
+  },
+  { timestamps: true }
+);
+milestoneSchema.index({ roadmap: 1, order: 1 });
+
+export const Roadmap = model('Roadmap', roadmapSchema);
+export const Milestone = model('Milestone', milestoneSchema);
 
 export const Question = model('Question', new Schema({
   student: { type: Schema.Types.ObjectId, ref: 'User', required: true },

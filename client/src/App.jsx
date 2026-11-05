@@ -19,7 +19,8 @@ import MyQuestions from './pages/MyQuestions.jsx';
 import OpenQuestions from './pages/OpenQuestions.jsx';
 import QuestionDetails from './pages/QuestionDetails.jsx';
 import AskQuestion from './pages/AskQuestion.jsx';
-import VideoCall from './pages/VideoCall.jsx';
+import AIMentor from './pages/AIMentor.jsx';
+import Roadmaps from './pages/Roadmaps.jsx';
 
 function Protected({ children, roles }) {
   const { user, loading } = useAuth();
@@ -62,6 +63,8 @@ export default function App() {
         <Route path="profile" element={<Profile />} />
         <Route path="ask-question" element={<AskQuestion />} />
         <Route path="progress-reports" element={<ProgressReports />} />
+        <Route path="ai-mentor" element={<AIMentor />} />
+        <Route path="roadmaps" element={<Roadmaps />} />
         <Route path="my-questions" element={<MyQuestions />} />
         <Route path="open-questions" element={<OpenQuestions />} />
         <Route path="question/:id" element={<QuestionDetails />} />

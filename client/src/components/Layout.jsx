@@ -33,6 +33,8 @@ export default function Layout() {
         { key: 'goals', label: 'Goals', icon: '🎯', path: '/goals' },
         { key: 'feedback', label: 'Feedback', icon: '💮', path: '/feedback' },
         { key: 'progress-reports', label: 'Progress Reports', icon: '📈', path: '/progress-reports' },
+        { key: 'ai-mentor', label: 'AI Mentor', path: '/ai-mentor' },
+        { key: 'roadmaps', label: 'Career Roadmap', path: '/roadmaps' },
         { key: 'ask-question', label: 'Ask Question', icon: '❓', path: '/ask-question' },
         { key: 'my-questions', label: 'My Questions', icon: '📝', path: '/my-questions' },
         { key: 'profile', label: 'Profile', icon: '👤', path: '/profile' },

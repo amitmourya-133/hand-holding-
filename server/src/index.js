@@ -26,6 +26,7 @@ import notificationRoutes from './routes/notifications.js';
 import statsRoutes from './routes/stats.js';
 import matchingRoutes from './routes/matchings.js';
 import progressRoutes from './routes/progress.js';
+import roadmapsRoutes from './routes/roadmaps.js';
 
 const PORT = process.env.PORT || 5000;
 
@@ -200,6 +201,7 @@ app.use('/api/feedback', feedbackRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/matchings', matchingRoutes);
+app.use('/api/roadmaps', roadmapsRoutes);
 app.use('/api/progress', progressRoutes);
 
 app.get('/api/protected', requireAuth, (req, res) => res.json({ userId: req.userId, role: req.userRole }));
