@@ -66,8 +66,7 @@ export default function Meetings() {
     try {
       const resp = await api(`/meetings/${meetingId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date }),
+        body: { date },
       });
       if (resp.meeting) {
         alert('Meeting rescheduled successfully');
@@ -265,6 +264,17 @@ export default function Meetings() {
                             <a href={m.placeOrLink} target="_blank" rel="noopener noreferrer" className="link small">
                               Join session ↗
                             </a>
+                          </div>
+                        )}
+                        {m.status === 'accepted' && (
+                          <div className="mt-1">
+                            <Button
+                              button-small
+                              button-primary
+                              onClick={() => navigate(`/video-call/${m._id}`)}
+                            >
+                              📹 Join Video Call
+                            </Button>
                           </div>
                         )}
                       </div>

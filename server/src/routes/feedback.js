@@ -1,17 +1,20 @@
-import { Router } from 'express';
 import { Feedback, Meeting, User } from '../models.js';
 import { requireAuth } from '../auth.js';
 import { notify } from '../helpers.js';
+import { createRouter } from '../asyncRouter.js';
 
-const router = Router();
+const router = createRouter();
 router.use(requireAuth);
 
 router.post('/', async (req, res) => {
   try {
     const { meetingId, rating, comment = '' } = req.body;
     const ratingNum = Number(rating);
-    if (!meetingId || !ratingNum || ratingNum < 1 || ratingNum > 5) {
+    if (!meetingId || !Number.isFinite(ratingNum) || ratingNum < 1 || ratingNum > 5) {
       return res.status(400).json({ error: 'A rating between 1 and 5 is required' });
+    }
+    if (typeof comment !== 'string' || comment.length > 2000) {
+      return res.status(400).json({ error: 'Comment is too long' });
     }
 
     const meeting = await Meeting.findById(meetingId);
@@ -29,7 +32,7 @@ router.post('/', async (req, res) => {
       mentee: req.userId,
       mentor: meeting.mentor,
       rating: ratingNum,
-      comment,
+      comment: comment.trim(),
     });
 
     const stats = await Feedback.aggregate([
@@ -59,13 +62,15 @@ router.post('/', async (req, res) => {
 });
 
 router.get('/', async (req, res) => {
-  const { mentorId, meetingId, mine } = req.query;
+  const { mentorId, meetingId } = req.query;
   const filter = {};
 
-  if (mine === '1' || req.userRole === 'mentee') {
+  // A mentor must never be able to read another mentor's feedback by passing
+  // a different mentorId query parameter. Only admins may filter by mentor.
+  if (req.userRole === 'mentee') {
     filter.mentee = req.userId;
   } else if (req.userRole === 'mentor') {
-    filter.mentor = mentorId || req.userId;
+    filter.mentor = req.userId;
   } else if (mentorId) {
     filter.mentor = mentorId;
   }

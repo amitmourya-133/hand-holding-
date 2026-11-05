@@ -1,9 +1,9 @@
-import { Router } from 'express';
 import mongoose from 'mongoose';
 import { User, Meeting, Goal, Feedback, Connection, Conversation, Message, Notification } from '../models.js';
 import { requireAuth } from '../auth.js';
+import { createRouter } from '../asyncRouter.js';
 
-const router = Router();
+const router = createRouter();
 router.use(requireAuth);
 
 const oid = (id) => new mongoose.Types.ObjectId(String(id));

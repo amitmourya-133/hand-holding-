@@ -1,9 +1,9 @@
-import { Router } from 'express';
 import { Goal, Connection } from '../models.js';
 import { requireAuth } from '../auth.js';
 import { notify } from '../helpers.js';
+import { createRouter } from '../asyncRouter.js';
 
-const router = Router();
+const router = createRouter();
 router.use(requireAuth);
 
 router.get('/', async (req, res) => {
@@ -32,8 +32,16 @@ router.post('/', async (req, res) => {
       return res.status(403).json({ error: 'Only mentors can create goals' });
     }
     const { menteeId, title, description = '', dueDate } = req.body;
-    if (!menteeId || !title) return res.status(400).json({ error: 'Mentee and title are required' });
+    const cleanTitle = typeof title === 'string' ? title.trim().slice(0, 200) : '';
+    const cleanDescription = typeof description === 'string' ? description.trim().slice(0, 2000) : '';
+    if (!menteeId || !cleanTitle) return res.status(400).json({ error: 'Mentee and title are required' });
     if (!/^[0-9a-fA-F]{24}$/.test(String(menteeId))) return res.status(400).json({ error: 'Invalid mentee id' });
+
+    let due;
+    if (dueDate !== undefined && dueDate !== null && dueDate !== '') {
+      due = new Date(dueDate);
+      if (Number.isNaN(due.getTime())) return res.status(400).json({ error: 'Invalid due date' });
+    }
 
     const linked = await Connection.findOne({
       status: 'accepted',
@@ -47,9 +55,9 @@ router.post('/', async (req, res) => {
     const goal = await Goal.create({
       mentee: menteeId,
       mentor: req.userId,
-      title,
-      description,
-      dueDate: dueDate ? new Date(dueDate) : undefined,
+      title: cleanTitle,
+      description: cleanDescription,
+      dueDate: due,
     });
 
     await notify(menteeId, {
@@ -80,9 +88,24 @@ router.patch('/:id', async (req, res) => {
 
   if (status && ['not_started', 'in_progress', 'completed'].includes(status)) goal.status = status;
   if (isMentor || isAdmin) {
-    if (title) goal.title = title;
-    if (description !== undefined) goal.description = description;
-    if (dueDate !== undefined) goal.dueDate = dueDate ? new Date(dueDate) : null;
+    if (title !== undefined) {
+      const cleanTitle = typeof title === 'string' ? title.trim().slice(0, 200) : '';
+      if (!cleanTitle) return res.status(400).json({ error: 'Title cannot be empty' });
+      goal.title = cleanTitle;
+    }
+    if (description !== undefined) {
+      if (typeof description !== 'string') return res.status(400).json({ error: 'Invalid description' });
+      goal.description = description.trim().slice(0, 2000);
+    }
+    if (dueDate !== undefined) {
+      if (dueDate === null || dueDate === '') {
+        goal.dueDate = null;
+      } else {
+        const parsed = new Date(dueDate);
+        if (Number.isNaN(parsed.getTime())) return res.status(400).json({ error: 'Invalid due date' });
+        goal.dueDate = parsed;
+      }
+    }
   }
   await goal.save();
 

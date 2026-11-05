@@ -12,7 +12,7 @@ export default function Connections() {
   const loadConns = async () => {
     try {
       const d = await api('/users/connections');
-      setConns(d.connections);
+      setConns(Array.isArray(d.connections) ? d.connections : []);
     } catch {}
   };
   useEffect(() => {
@@ -41,6 +41,13 @@ export default function Connections() {
   };
 
   if (user.role === 'mentee') {
+    const accepted = conns.filter(
+      (c) => String(c.mentee?._id || c.mentee) === String(user._id) && c.status === 'accepted' && c.mentor
+    );
+    const pending = conns.filter(
+      (c) => String(c.mentee?._id || c.mentee) === String(user._id) && c.status === 'pending' && c.mentor
+    );
+
     return (
       <div className="page">
         <div className="page-header">
@@ -48,33 +55,51 @@ export default function Connections() {
         </div>
         <p className="muted">Mentors you are connected with.</p>
 
-        {conns.length === 0 ? (
+        {accepted.length === 0 ? (
           <EmptyState title="No mentors connected" body="Request a mentor from the Find Mentors page to get started." />
         ) : (
           <ul className="list-unstyled">
-            {conns
-              .filter((c) => String(c.mentee?._id || c.mentee) === String(user._id) && c.status === 'accepted')
-              .map((c) => {
-                const mentor = c.mentor;
-                return (
-                  <li key={c._id} className="mb-3">
-                    <div className="d-flex w-100 justify-content-between">
-                      <h6>{mentor.name}</h6>
-                      <Badge tone="green">Connected</Badge>
-                    </div>
-                    <p className="muted small">
-                      {mentor.department || ''}{mentor.company ? ` · ${mentor.company}` : ''}
-                    </p>
-                    <div className="mt-2">
-                      <Button button-small button-primary onClick={() => openChat(mentor._id)}>
-                        Chat
-                      </Button>
-                      <Button button-small button-secondary onClick={() => navigate(`/meetings`)}>Schedule Meeting</Button>
-                    </div>
-                  </li>
-                );
-              })}
+            {accepted.map((c) => {
+              const mentor = c.mentor;
+              const mentorId = mentor._id || mentor.id;
+              return (
+                <li key={c._id} className="mb-3">
+                  <div className="d-flex w-100 justify-content-between">
+                    <h6>{mentor.name}</h6>
+                    <Badge tone="green">Connected</Badge>
+                  </div>
+                  <p className="muted small">
+                    {[mentor.designation, mentor.department, mentor.company].filter(Boolean).join(' · ')}
+                  </p>
+                  <div className="mt-2">
+                    <Button button-small button-primary onClick={() => openChat(mentorId)}>
+                      Chat
+                    </Button>
+                    <Button button-small button-secondary onClick={() => navigate(`/meetings`)}>Schedule Meeting</Button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
+        )}
+
+        {pending.length > 0 && (
+          <div className="card mt-3">
+            <h3>Pending Requests ({pending.length})</h3>
+            <ul className="list-unstyled">
+              {pending.map((c) => (
+                <li key={c._id} className="mb-3">
+                  <div className="d-flex w-100 justify-content-between">
+                    <h6>{c.mentor.name}</h6>
+                    <Badge tone="amber">Pending</Badge>
+                  </div>
+                  <p className="muted small">
+                    Waiting for {c.mentor.name} to accept your request.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         <div className="mt-3">

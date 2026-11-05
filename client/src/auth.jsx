@@ -1,10 +1,27 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
-import { api, getToken, setToken, clearToken } from './api.js';
+import { api, getToken, setToken, clearToken, hasSessionHint } from './api.js';
 import { connectSocket, disconnectSocket } from './socket.js';
 
 const AuthContext = createContext();
 
 const normalizeUser = (u) => (u && !u._id && u.id ? { ...u, _id: u.id } : u);
+
+// Minimal user from the JWT payload, used only if /auth/me is temporarily slow
+// or unreachable. The server still validates every request, so this only keeps
+// the UI usable instead of logging the user out on a transient network blip.
+const userFromToken = (token) => {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return normalizeUser({
+      _id: payload.id || payload.sub,
+      id: payload.id || payload.sub,
+      name: payload.name,
+      role: payload.role,
+    });
+  } catch {
+    return null;
+  }
+};
 
 export function AuthProvider({ children }) {
   const [user, setUserState] = useState(null);
@@ -37,16 +54,20 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let cancelled = false;
     const authCheck = async () => {
+      let timeoutId;
       try {
-        if (!getToken()) {
+        if (!getToken() && !hasSessionHint()) {
           setUser(null);
           setLoading(false);
           return;
         }
-        // Use Promise.race with a timeout to prevent infinite hanging
+        // Give a cold backend (e.g. Render free tier) time to wake up instead of
+        // logging the user out after an arbitrary short delay. The HttpOnly
+        // session cookie is validated even when localStorage has no token.
         const authPromise = api('/auth/me');
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Auth check timeout')), 5000);
+          const err = new Error('Auth check timeout');
+          timeoutId = setTimeout(() => reject(err), 20000);
         });
         const result = await Promise.race([authPromise, timeoutPromise]);
 
@@ -55,9 +76,24 @@ export function AuthProvider({ children }) {
         attachSocket();
         loadNotifications();
       } catch (error) {
-        // Always clear invalid auth state on any error
-        clearToken();
+        if (cancelled) return;
+        // Only clear the session when the server explicitly rejects the token.
+        // Timeouts and network errors should not log the user out.
+        if (error?.status === 401 || error?.status === 403) {
+          clearToken();
+          setUser(null);
+        } else {
+          const token = getToken();
+          const fallback = token ? userFromToken(token) : null;
+          if (fallback) {
+            setUser(fallback);
+          } else {
+            clearToken();
+            setUser(null);
+          }
+        }
       } finally {
+        if (timeoutId) clearTimeout(timeoutId);
         // ALWAYS clear loading state, even on timeout or error
         if (!cancelled) setLoading(false);
       }
@@ -71,7 +107,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const afterAuth = (data) => {
-    setToken(data.token);
+    if (data.token) setToken(data.token);
     setUser(data.user);
     attachSocket();
     loadNotifications();
@@ -83,7 +119,13 @@ export function AuthProvider({ children }) {
 
   const register = async (payload) => afterAuth(await api('/auth/register', { method: 'POST', body: payload }));
 
-  const logout = () => {
+  // Clear the server-side HttpOnly session cookies as well as local state.
+  const logout = async () => {
+    try {
+      await api('/auth/logout', { method: 'POST' });
+    } catch {
+      // Even if the request fails, continue clearing the local session.
+    }
     clearToken();
     disconnectSocket();
     setUser(null);

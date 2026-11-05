@@ -1,10 +1,13 @@
 import { useContext, useState } from 'react';
 import { useAuth } from '../auth.jsx';
+import { useNavigate } from 'react-router-dom';
 import { Navigate } from 'react-router-dom';
+import { api } from '../api.js';
 import { Button, Input, Textarea, EmptyState } from '../components/ui.jsx';
 
 export default function AskQuestion() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [subject, setSubject] = useState('');
@@ -22,7 +25,7 @@ export default function AskQuestion() {
     }
     setLoading(true);
     try {
-      const resp = await api('/questions', {
+      const resp = await api('/users/questions', {
         method: 'POST',
         body: {
           title: title.trim(),

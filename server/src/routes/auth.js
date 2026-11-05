@@ -1,11 +1,12 @@
-import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { User } from '../models.js';
-import { signToken, requireAuth, requireRole } from '../auth.js';
+import { signToken, requireAuth } from '../auth.js';
+import { createRouter } from '../asyncRouter.js';
+import { csrfProtection, validatePassword } from '../middleware.js';
 
-const router = Router();
+const router = createRouter();
 
 const COLORS = ['#4f6df5', '#e8595c', '#18a999', '#f0932b', '#8e44ad', '#16a085', '#d35400', '#2c3e50'];
 
@@ -27,59 +28,44 @@ const CSRF_COOKIE_OPTIONS = {
   path: '/',
 };
 
-// CSRF validation middleware for state-changing requests
-// Validates that the X-XSRF-TOKEN header matches the XSRF-TOKEN cookie value
-function csrfTokenValidator(req, res, next) {
-  const headerToken = req.headers['x-xsrf-token'];
-  const cookieToken = req.cookies?.['XSRF-TOKEN'];
-
-  if (!headerToken || !cookieToken) {
-    return res.status(403).json({ error: 'CSRF token missing' });
-  }
-
-  if (headerToken !== cookieToken) {
-    return res.status(403).json({ error: 'CSRF token mismatch' });
-  }
-
-  next();
-}
-
 // Rate limiters applied as middleware on specific routes
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 15,
   skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { error: 'Too many login attempts. Please wait a few minutes and try again.' },
 });
 const registerLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { error: 'Too many registration attempts. Please wait a few minutes and try again.' },
 });
 const passwordResetLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 3,
   skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { error: 'Too many password reset attempts. Please wait a few minutes and try again.' },
 });
-
-// CSRF validator middleware - reused across routes
-function csrfValidator(req, res, next) {
-  const headerToken = req.headers['x-xsrf-token'];
-  const cookieToken = req.cookies?.['XSRF-TOKEN'];
-  if (!headerToken || !cookieToken) {
-    return res.status(403).json({ error: 'CSRF token missing' });
-  }
-  if (headerToken !== cookieToken) {
-    return res.status(403).json({ error: 'CSRF token mismatch' });
-  }
-  next();
-}
 
 // Generate a random CSRF token
 function generateCSRFToken() {
   return crypto.randomBytes(32).toString('hex');
+}
+
+// Set the HttpOnly session cookie and the readable CSRF double-submit cookie.
+// Returns the CSRF token so clients can also keep it in memory.
+function setSessionCookies(res, token) {
+  res.cookie('hh_token', token, COOKIE_OPTIONS);
+  const csrfToken = generateCSRFToken();
+  res.cookie('XSRF-TOKEN', csrfToken, CSRF_COOKIE_OPTIONS);
+  return csrfToken;
 }
 
 router.post('/register', registerLimiter, async (req, res) => {
@@ -113,7 +99,9 @@ router.post('/register', registerLimiter, async (req, res) => {
       color: COLORS[Math.floor(Math.random() * COLORS.length)],
     });
 
-    res.status(201).json({ token: signToken(user), user: user.toPublic() });
+    const token = signToken(user);
+    const csrfToken = setSessionCookies(res, token);
+    res.status(201).json({ token, user: user.toPublic(), csrfToken });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Registration failed' });
@@ -135,12 +123,9 @@ router.post('/login', loginLimiter, async (req, res) => {
     await user.save();
 
     const token = signToken(user);
-    // Set JWT as HttpOnly cookie
-    res.cookie('hh_token', token, COOKIE_OPTIONS);
-    // Set CSRF token cookie (non-HttpOnly so JavaScript can read it for double-submit pattern)
-    const csrfToken = generateCSRFToken();
-    res.cookie('XSRF-TOKEN', csrfToken, CSRF_COOKIE_OPTIONS);
-    // Also return token in JSON for backward compatibility
+    // Set the HttpOnly JWT cookie and the readable CSRF double-submit cookie,
+    // and return the token in JSON for the Authorization-header fallback.
+    const csrfToken = setSessionCookies(res, token);
     res.json({ token, user: user.toPublic(), csrfToken });
   } catch (err) {
     console.error(err);
@@ -148,20 +133,26 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
 });
 
-// Keep existing /me endpoint - requireAuth will read from cookie or header
+// requireAuth reads the session from the HttpOnly cookie or Bearer header.
 router.get('/me', requireAuth, async (req, res) => {
   const user = await User.findById(req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ user: user.toPublic() });
 });
 
-router.get('/me', requireAuth, async (req, res) => {
-  const user = await User.findById(req.userId);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json({ user: user.toPublic() });
+// Clear both session cookies so logout invalidates the browser session.
+router.post('/logout', (req, res) => {
+  const base = {
+    path: '/',
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  };
+  res.clearCookie('hh_token', { ...base, httpOnly: true });
+  res.clearCookie('XSRF-TOKEN', { ...base, httpOnly: false });
+  res.json({ ok: true });
 });
 
-router.post('/change-password', requireAuth, csrfTokenValidator, async (req, res) => {
+router.post('/change-password', requireAuth, csrfProtection, async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
     if (!oldPassword || !newPassword) {
@@ -207,7 +198,7 @@ router.post('/forgot', passwordResetLimiter, async (req, res) => {
   }
 });
 
-router.post('/reset', async (req, res) => {
+router.post('/reset', passwordResetLimiter, async (req, res) => {
   try {
     const { token, password } = req.body;
     if (!token || !password) return res.status(400).json({ error: 'Token and password required' });
@@ -216,8 +207,10 @@ router.post('/reset', async (req, res) => {
       resetPasswordExpires: { $gt: Date.now() },
     });
     if (!user) return res.status(400).json({ error: 'Invalid or expired token' });
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (!validatePassword(password)) {
+      return res.status(400).json({
+        error: 'Password must be at least 8 characters and contain at least one letter and one number',
+      });
     }
     user.passwordHash = await bcrypt.hash(password, 10);
     user.resetPasswordToken = null;
@@ -227,44 +220,6 @@ router.post('/reset', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Could not reset password' });
-  }
-});
-
-router.put('/settings', requireAuth, csrfTokenValidator, requireRole('admin'), async (req, res) => {
-  try {
-    const { currentPassword, newEmail, newPassword } = req.body;
-    if (!currentPassword) return res.status(400).json({ error: 'Current password is required' });
-
-    const user = await User.findById(req.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    // Verify current password
-    const ok = await bcrypt.compare(currentPassword, user.passwordHash);
-    if (!ok) return res.status(401).json({ error: 'Current password is incorrect' });
-
-    // Change email if provided
-    if (newEmail) {
-      const emailLower = newEmail.toLowerCase();
-      const existing = await User.findOne({ email: emailLower });
-      if (existing && existing._id.toString() !== user._id.toString()) {
-        return res.status(409).json({ error: 'Email already in use' });
-      }
-      user.email = emailLower;
-    }
-
-    // Change password if provided
-    if (newPassword) {
-      if (newPassword.length < 6) {
-        return res.status(400).json({ error: 'New password must be at least 6 characters' });
-      }
-      user.passwordHash = await bcrypt.hash(newPassword, 10);
-    }
-
-    await user.save();
-    res.json({ ok: true, user: user.toPublic() });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Could not update account settings' });
   }
 });
 

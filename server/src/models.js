@@ -135,7 +135,11 @@ feedbackSchema.index({ meeting: 1, mentee: 1 }, { unique: true });
 const notificationSchema = new Schema(
   {
     user: { type: Types.ObjectId, ref: 'User', required: true },
-    type: { type: String, enum: ['message', 'meeting', 'connection', 'goal', 'feedback', 'reminder'], default: 'info' },
+    type: {
+      type: String,
+      enum: ['info', 'message', 'meeting', 'connection', 'goal', 'feedback', 'reminder'],
+      default: 'info',
+    },
     title: { type: String, required: true },
     body: { type: String, default: '' },
     link: { type: String, default: '' },

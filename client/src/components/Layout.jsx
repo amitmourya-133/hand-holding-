@@ -32,6 +32,7 @@ export default function Layout() {
         { key: 'meetings', label: 'Meetings', icon: '📅', path: '/meetings' },
         { key: 'goals', label: 'Goals', icon: '🎯', path: '/goals' },
         { key: 'feedback', label: 'Feedback', icon: '💮', path: '/feedback' },
+        { key: 'progress-reports', label: 'Progress Reports', icon: '📈', path: '/progress-reports' },
         { key: 'ask-question', label: 'Ask Question', icon: '❓', path: '/ask-question' },
         { key: 'my-questions', label: 'My Questions', icon: '📝', path: '/my-questions' },
         { key: 'profile', label: 'Profile', icon: '👤', path: '/profile' },
@@ -45,6 +46,7 @@ export default function Layout() {
         { key: 'meetings', label: 'Meetings', icon: '📅', path: '/meetings' },
         { key: 'goals', label: 'Goals', icon: '🎯', path: '/goals' },
         { key: 'feedback', label: 'Feedback', icon: '💮', path: '/feedback' },
+        { key: 'progress-reports', label: 'Progress Reports', icon: '📈', path: '/progress-reports' },
         { key: 'open-questions', label: 'Open Questions', icon: '💬', path: '/open-questions' },
         { key: 'profile', label: 'Profile', icon: '👤', path: '/profile' },
       ];
@@ -55,6 +57,7 @@ export default function Layout() {
         { key: 'admin', label: 'Admin', icon: '🛠️', path: '/admin' },
         { key: 'meetings', label: 'Meetings', icon: '📅', path: '/meetings' },
         { key: 'feedback', label: 'Feedback', icon: '💮', path: '/feedback' },
+        { key: 'progress-reports', label: 'Progress Reports', icon: '📈', path: '/progress-reports' },
         { key: 'profile', label: 'Profile', icon: '👤', path: '/profile' },
       ];
     }

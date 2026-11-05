@@ -4,12 +4,20 @@ import { JWT_SECRET } from './auth.js';
 
 let io = null;
 
+function allowedOrigins() {
+  const configured = String(process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  return configured.length
+    ? configured
+    : ['http://localhost:5173', 'http://localhost:3000'];
+}
+
 export function initSocket(httpServer) {
   io = new Server(httpServer, {
     cors: {
-      origin: process.env.CORS_ALLOWED_ORIGINS
-        ? process.env.CORS_ALLOWED_ORIGINS.split(',')
-        : ['http://localhost:5173', 'http://localhost:3000'],
+      origin: allowedOrigins(),
       credentials: true,
       methods: ['GET', 'POST'],
     },

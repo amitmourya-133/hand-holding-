@@ -19,6 +19,7 @@ import MyQuestions from './pages/MyQuestions.jsx';
 import OpenQuestions from './pages/OpenQuestions.jsx';
 import QuestionDetails from './pages/QuestionDetails.jsx';
 import AskQuestion from './pages/AskQuestion.jsx';
+import VideoCall from './pages/VideoCall.jsx';
 
 function Protected({ children, roles }) {
   const { user, loading } = useAuth();
@@ -64,6 +65,7 @@ export default function App() {
         <Route path="my-questions" element={<MyQuestions />} />
         <Route path="open-questions" element={<OpenQuestions />} />
         <Route path="question/:id" element={<QuestionDetails />} />
+        <Route path="video-call/:id" element={<VideoCall />} />
         <Route
           path="admin"
           element={

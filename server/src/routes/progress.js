@@ -1,10 +1,18 @@
-import { Router } from 'express';
 import mongoose from 'mongoose';
 import { User, Meeting, Goal, Feedback, Connection, Conversation, Notification } from '../models.js';
 import { requireAuth } from '../auth.js';
+import { createRouter } from '../asyncRouter.js';
 
-const router = Router();
+const router = createRouter();
 const oid = (id) => new mongoose.Types.ObjectId(String(id));
+
+// Neutralize spreadsheet formula injection. A cell beginning with =, +, -, @,
+// tab or carriage return can be interpreted as a formula by Excel/Sheets even
+// when quoted, so prefix it with an apostrophe before CSV escaping.
+function neutralizeFormula(value) {
+  const text = String(value ?? '');
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+}
 
 function exportCSV(rows, headers) {
   if (rows.length === 0) return '';
@@ -13,7 +21,9 @@ function exportCSV(rows, headers) {
     headers
       .map((h) => {
         const val = row[h] ?? '';
-        const escaped = String(val).replace(/"/g, '""').replace(/[\r\n]/g, ' ');
+        const escaped = neutralizeFormula(val)
+          .replace(/"/g, '""')
+          .replace(/[\r\n]/g, ' ');
         return `"${escaped}"`;
       })
       .join(',')

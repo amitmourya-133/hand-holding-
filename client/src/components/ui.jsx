@@ -110,6 +110,9 @@ export function StatusBadge({ status }) {
     completed: 'blue',
     declined: 'red',
     cancelled: 'red',
+    open: 'amber',
+    answered: 'blue',
+    solved: 'green',
     not_started: 'neutral',
     in_progress: 'amber',
   };

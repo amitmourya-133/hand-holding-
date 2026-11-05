@@ -1,39 +1,43 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import { api } from '../api.js';
-import { Button, EmptyState, Badge } from '../components/ui.jsx';
+import { Button, EmptyState, StatusBadge } from '../components/ui.jsx';
 
 export default function MyQuestions() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  if (!user || user.role !== 'mentee') return null;
+  const [error, setError] = useState('');
 
   useEffect(() => {
+    if (!user || user.role !== 'mentee') {
+      setLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
     (async () => {
+      setLoading(true);
+      setError('');
       try {
-        const resp = await api('/questions/mentor');
-        // Filter questions where the student is the current user
-        const myQuestions = resp.questions.filter(
-          (q) => String(q.student?._id || q.student) === String(user._id)
-        );
-        setQuestions(myQuestions);
+        const resp = await api('/users/questions/mine');
+        if (!cancelled) setQuestions(Array.isArray(resp.questions) ? resp.questions : []);
       } catch (err) {
-        console.error(err);
+        if (!cancelled) setError(err?.message || 'Could not load your questions');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [user?.id]);
 
+    return () => {
+      cancelled = true;
+    };
+  }, [user?._id, user?.role]);
+
+  if (!user || user.role !== 'mentee') return null;
   if (loading) return <div className="page-loading">Loading your questions…</div>;
-  if (!user) return null;
-
-  const emptyState =
-    questions.length === 0
-      ? <EmptyState title="No questions yet" body="Post your first question above." />
-      : null;
 
   return (
     <div className="page">
@@ -42,36 +46,43 @@ export default function MyQuestions() {
         <p className="muted">Questions you've posted for mentors</p>
       </div>
 
-      {emptyState || (
+      {error && <p className="text-danger">{error}</p>}
+
+      {questions.length === 0 ? (
+        <EmptyState title="No questions yet" body="Post your first question from Ask Question." />
+      ) : (
         <div>
-          {questions.map((q) => (
-            <div key={q._id} className="card mb-3">
-              <div className="card-header">
-                <h6>{q.title}</h6>
-                <small className="text-muted">
-                  {q.subject || 'No subject'} · {q.status.toUpperCase()}
-                </small>
-              </div>
-              <div className="card-body">
-                <p className="card-text">{q.description || ''}</p>
-                <div className="mt-2">
-                  <Badge status={q.status} />
-                  {q.acceptedAnswer && (
-                    <small className="text-primary">
-                      Accepted answer present
-                    </small>
-                  )}
+          {questions.map((q) => {
+            const accepted = Boolean(q.acceptedAnswer);
+            return (
+              <div key={q._id} className="card mb-3">
+                <div className="card-header">
+                  <h6>{q.title}</h6>
+                  <small className="text-muted">
+                    {q.subject || 'No subject'}
+                  </small>
+                </div>
+                <div className="card-body">
+                  <p className="card-text">{q.description || ''}</p>
+                  <div className="mt-2">
+                    <StatusBadge status={q.status} />
+                    {accepted && <small className="text-success ms-2">Accepted answer selected</small>}
+                  </div>
+                </div>
+                <div className="card-footer">
+                  <Button
+                    button-small
+                    button-primary
+                    onClick={() => navigate(`/question/${q._id}`)}
+                  >
+                    View Answers
+                  </Button>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
-
-      <EmptyState
-        title="No questions found"
-        body="Post your first question using the form above."
-      />
     </div>
   );
 }

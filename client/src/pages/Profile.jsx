@@ -53,6 +53,7 @@ export default function Profile() {
           designation: designation.trim() || undefined,
           skills: skills.split(',').map((s) => s.trim()).filter(Boolean),
           bio: bio.trim() || undefined,
+          availability,
         },
       });
       if (d?.user) setUser(d.user);
@@ -83,8 +84,7 @@ export default function Profile() {
 
   const handleAdminSettings = async (e) => {
     e.preventDefault();
-    setError('');
-    setNotice('');
+    setAdminSettings({ success: '', error: '', submitting: true });
     try {
       const d = await api('/users/settings', {
         method: 'PUT',
@@ -94,10 +94,20 @@ export default function Profile() {
           newPassword: newPasswordSetting,
         },
       });
-      if (d?.ok) setNotice('Account settings updated successfully');
-      setError(d?.error || '');
+      setAdminSettings({
+        success: 'Account settings updated successfully',
+        error: '',
+        submitting: false,
+      });
+      if (d?.user) setUser(d.user);
+      setCurrentPasswordSetting('');
+      setNewPasswordSetting('');
     } catch (err) {
-      setError(err?.message || 'Failed to update account settings');
+      setAdminSettings({
+        success: '',
+        error: err?.message || 'Failed to update account settings',
+        submitting: false,
+      });
     }
   };
 
@@ -162,6 +172,14 @@ export default function Profile() {
                 <Input label="Skills (comma separated)" type="text" value={skills} onChange={(e) => setSkills(e.target.value)} placeholder="e.g., Leadership, Coaching" />
               </FormGroup>
               <FormGroup>
+                <label className="input-label">Availability</label>
+                <select className="input" value={availability} onChange={(e) => setAvailability(e.target.value)}>
+                  <option value="available">Available</option>
+                  <option value="limited">Limited</option>
+                  <option value="unavailable">Unavailable</option>
+                </select>
+              </FormGroup>
+              <FormGroup>
                 <Textarea label="Bio" value={bio} onChange={(e) => setBio(e.target.value)} rows={4} placeholder="Tell us about yourself" />
               </FormGroup>
               <Button type="submit" className="button button-primary w-full">Save Changes</Button>
@@ -189,16 +207,20 @@ export default function Profile() {
                   label="New Password"
                   type="password"
                   required
-                  minLength={6}
+                  minLength={8}
                   value={changePassword.new}
                   onChange={(e) => setChangePassword({ ...changePassword, new: e.target.value })}
                 />
+                <small className="muted xsmall">
+                  At least 8 characters with one letter and one number
+                </small>
               </FormGroup>
               <FormGroup>
                 <Input
                   label="Confirm New Password"
                   type="password"
                   required
+                  minLength={8}
                   value={changePassword.confirm}
                   onChange={(e) => setChangePassword({ ...changePassword, confirm: e.target.value })}
                 />
@@ -240,12 +262,14 @@ export default function Profile() {
                     <Input
                       label="New Password"
                       type="password"
-                      minLength={6}
+                      minLength={8}
                       value={newPasswordSetting}
                       onChange={(e) => setNewPasswordSetting(e.target.value)}
                       placeholder="Enter new password (leave blank to keep current)"
                     />
-                    <small className="muted small">Leave blank to keep current password</small>
+                    <small className="muted small">
+                      Leave blank to keep current password. New passwords need at least 8 characters with a letter and a number.
+                    </small>
                   </FormGroup>
                   <Button type="submit" className="button button-primary w-full">Save Settings</Button>
                 </form>

@@ -1,5 +1,3 @@
-import React from 'react';
-
 // Production API URL: overridden via VITE_API_URL env var
 // When NODE_ENV=production and VITE_API_URL is set, requests use the actual backend origin.
 // When unset (development), requests go through the Vite /api proxy to localhost:5000.
@@ -19,48 +17,47 @@ export const getToken = () => localStorage.getItem(COOKIE_NAME);
 export const setToken = (t) => {
   // The server sets the real HttpOnly session cookie; JS cannot and must not
   // duplicate it. Store the token for the Authorization header fallback.
-  localStorage.setItem(COOKIE_NAME, t);
+  if (t) localStorage.setItem(COOKIE_NAME, t);
 };
 
 export const clearToken = () => {
   localStorage.removeItem(COOKIE_NAME);
 };
 
-export function useAuth() {
-  const [user, setUser] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    const token = getToken();
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        setUser({
-          id: payload.sub || payload.id,
-          name: payload.name,
-          email: payload.email,
-          role: payload.role,
-        });
-      } catch {
-        setUser(null);
-      }
-    }
-    setLoading(false);
-  }, []);
-
-  return { user, loading };
+// Read a cookie value by name (used for CSRF double-submit token).
+function getCookie(name) {
+  const match = document.cookie.match(
+    new RegExp('(?:^|; )' + name.replace(/([.$?*|{}()[\]\\/+^])/g, '\\$1') + '=([^;]*)')
+  );
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
+// The HttpOnly session cookie is not readable from JavaScript, but the server
+// sets the readable XSRF-TOKEN cookie at the same time. Its presence is a safe
+// hint that a cookie session may exist even if localStorage was cleared.
+export const hasSessionHint = () => Boolean(getCookie('XSRF-TOKEN'));
+
 export async function api(path, { method = 'GET', body } = {}) {
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = { Accept: 'application/json' };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
+
+  const hasBody = body !== undefined && body !== null;
+  if (hasBody) headers['Content-Type'] = 'application/json';
+
+  // CSRF double-submit: for state-changing requests, send the XSRF-TOKEN cookie
+  // value as the X-XSRF-TOKEN header so the backend can validate it.
+  const upperMethod = (method || 'GET').toUpperCase();
+  if (upperMethod !== 'GET' && upperMethod !== 'HEAD' && upperMethod !== 'OPTIONS') {
+    const csrfToken = getCookie('XSRF-TOKEN');
+    if (csrfToken) headers['X-XSRF-TOKEN'] = csrfToken;
+  }
 
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
     credentials: 'include',
-    body: body ? JSON.stringify(body) : undefined,
+    body: hasBody ? JSON.stringify(body) : undefined,
   });
 
   let data = null;
@@ -79,7 +76,7 @@ export async function api(path, { method = 'GET', body } = {}) {
 }
 
 export async function apiBlob(path) {
-  const headers = {};
+  const headers = { Accept: '*/*' };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 

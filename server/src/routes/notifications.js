@@ -1,8 +1,8 @@
-import { Router } from 'express';
 import { Notification } from '../models.js';
 import { requireAuth } from '../auth.js';
+import { createRouter } from '../asyncRouter.js';
 
-const router = Router();
+const router = createRouter();
 router.use(requireAuth);
 
 router.get('/', async (req, res) => {

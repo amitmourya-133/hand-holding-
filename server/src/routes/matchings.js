@@ -1,8 +1,8 @@
-import { Router } from 'express';
 import { User } from '../models.js';
 import { requireAuth } from '../auth.js';
+import { createRouter } from '../asyncRouter.js';
 
-const router = Router();
+const router = createRouter();
 
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -89,6 +89,7 @@ async function findMentorMatch(menteeId) {
 
 async function findPotentialMentees(mentorId) {
   const mentor = await User.findById(mentorId).select('department skills availability mentorType');
+  if (!mentor) return [];
 
   const query = {
     role: 'mentee',

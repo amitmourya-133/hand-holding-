@@ -1,35 +1,43 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import { api } from '../api.js';
-import { Button, EmptyState, Badge } from '../components/ui.jsx';
+import { Button, EmptyState, StatusBadge } from '../components/ui.jsx';
 
 export default function OpenQuestions() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  if (!user || user.role !== 'mentor') return null;
+  const [error, setError] = useState('');
 
   useEffect(() => {
+    if (!user || !['mentor', 'admin'].includes(user.role)) {
+      setLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
     (async () => {
+      setLoading(true);
+      setError('');
       try {
-        const resp = await api('/questions/mentor');
-        setQuestions(resp.questions || []);
+        const resp = await api('/users/questions/mentor');
+        if (!cancelled) setQuestions(Array.isArray(resp.questions) ? resp.questions : []);
       } catch (err) {
-        console.error(err);
+        if (!cancelled) setError(err?.message || 'Could not load open questions');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [user?.id]);
 
+    return () => {
+      cancelled = true;
+    };
+  }, [user?._id, user?.role]);
+
+  if (!user || !['mentor', 'admin'].includes(user.role)) return null;
   if (loading) return <div className="page-loading">Loading open questions…</div>;
-  if (!user) return null;
-
-  const emptyState =
-    questions.length === 0
-      ? <EmptyState title="No open questions" body="No eligible questions at this time." />
-      : null;
 
   return (
     <div className="page">
@@ -38,7 +46,14 @@ export default function OpenQuestions() {
         <p className="muted">Questions available for mentors to answer</p>
       </div>
 
-      {emptyState || (
+      {error && <p className="text-danger">{error}</p>}
+
+      {questions.length === 0 ? (
+        <EmptyState
+          title="No open questions"
+          body="All questions have been answered or there are no new questions."
+        />
+      ) : (
         <div>
           {questions.map((q) => (
             <div key={q._id} className="card mb-3">
@@ -51,12 +66,7 @@ export default function OpenQuestions() {
               <div className="card-body">
                 <p className="card-text">{q.description || ''}</p>
                 <div className="mt-2">
-                  <Badge status={q.status} />
-                  {q.acceptedAnswer && (
-                    <small className="text-primary">
-                      Accepted answer
-                    </small>
-                  )}
+                  <StatusBadge status={q.status} />
                 </div>
               </div>
               <div className="card-footer">
@@ -68,11 +78,6 @@ export default function OpenQuestions() {
           ))}
         </div>
       )}
-
-      <EmptyState
-        title="No open questions"
-        body="All questions have been answered or there are no new questions."
-      />
     </div>
   );
 }

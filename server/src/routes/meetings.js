@@ -1,7 +1,7 @@
-import { Router } from 'express';
-import { Meeting, Connection, Goal } from '../models.js';
+import { Meeting, Connection, Goal, User } from '../models.js';
 import { requireAuth } from '../auth.js';
 import { notify } from '../helpers.js';
+import { createRouter } from '../asyncRouter.js';
 
 const ALLOWED_URL_SCHEMES = ['https:', 'http:'];
 
@@ -15,16 +15,28 @@ function isValidMeetingUrl(url) {
   }
 }
 
-const router = Router();
+const router = createRouter();
 router.use(requireAuth);
 
 router.post('/', async (req, res) => {
   try {
     const { mentorId, menteeId, title, agenda = '', date, durationMin = 30, mode = 'online', placeOrLink = '' } = req.body;
-    if (!title || !date) return res.status(400).json({ error: 'Title and date are required' });
+    const cleanTitle = typeof title === 'string' ? title.trim().slice(0, 200) : '';
+    const cleanAgenda = typeof agenda === 'string' ? agenda.trim().slice(0, 2000) : '';
+    if (!cleanTitle || !date) return res.status(400).json({ error: 'Title and date are required' });
+    if (typeof placeOrLink !== 'string' || placeOrLink.length > 500) {
+      return res.status(400).json({ error: 'Invalid meeting link or place' });
+    }
     const hex = /^[0-9a-fA-F]{24}$/;
     if (mentorId && !hex.test(String(mentorId))) return res.status(400).json({ error: 'Invalid mentor id' });
     if (menteeId && !hex.test(String(menteeId))) return res.status(400).json({ error: 'Invalid mentee id' });
+    if (!['online', 'in_person'].includes(mode)) {
+      return res.status(400).json({ error: 'Mode must be online or in_person' });
+    }
+    const duration = Number(durationMin);
+    if (!Number.isFinite(duration) || duration < 15 || duration > 480) {
+      return res.status(400).json({ error: 'Duration must be between 15 and 480 minutes' });
+    }
 
     // Validate placeOrLink URL scheme
     if (!isValidMeetingUrl(placeOrLink)) {
@@ -63,10 +75,10 @@ router.post('/', async (req, res) => {
     const meeting = await Meeting.create({
       mentor,
       mentee,
-      title,
-      agenda,
+      title: cleanTitle,
+      agenda: cleanAgenda,
       date: when,
-      durationMin: Number(durationMin) || 30,
+      durationMin: duration,
       mode,
       placeOrLink,
       proposedBy: req.userId,
@@ -76,7 +88,7 @@ router.post('/', async (req, res) => {
     await notify(other, {
       type: 'meeting',
       title: 'New meeting proposal',
-      body: `"${title}" proposed for ${when.toLocaleString()}`,
+      body: `"${cleanTitle}" proposed for ${when.toLocaleString()}`,
       link: '/meetings',
     });
 
@@ -195,6 +207,29 @@ router.post('/:id/cancel', async (req, res) => {
   res.json({ meeting });
 });
 
+// POST /:id/join — verify participant authorization and return Jitsi room info
+router.post('/:id/join', async (req, res) => {
+  const loaded = await loadMeeting(req, res);
+  if (!loaded) return;
+  const { meeting, isMentor, isMentee } = loaded;
+
+  // Only accepted (scheduled) meetings can be joined for video calls
+  if (meeting.status !== 'accepted') {
+    return res.status(409).json({ error: 'Video calls are only available for accepted meetings' });
+  }
+
+  // Generate a deterministic room name from the meeting ID
+  const roomName = `hand-holding-${String(meeting._id)}`;
+
+  res.json({
+    meetingId: String(meeting._id),
+    roomName,
+    title: meeting.title,
+    isMentor,
+    isMentee,
+  });
+});
+
 router.get('/summary', async (req, res) => {
   const upcoming = await Meeting.find({
     $or: [{ mentor: req.userId }, { mentee: req.userId }],
@@ -230,9 +265,14 @@ router.patch('/:id', requireAuth, async (req, res) => {
     if (!['pending', 'accepted'].includes(meeting.status)) {
       return res.status(409).json({ error: 'This meeting can no longer be edited' });
     }
-    const { date, agenda, mode, placeOrLink } = req.body;
-    if (placeOrLink !== undefined && !isValidMeetingUrl(placeOrLink)) {
-      return res.status(400).json({ error: 'Invalid meeting URL scheme. Only HTTPS and HTTP are allowed.' });
+    const { date, agenda, mode, placeOrLink, durationMin } = req.body;
+    if (placeOrLink !== undefined) {
+      if (typeof placeOrLink !== 'string' || placeOrLink.length > 500) {
+        return res.status(400).json({ error: 'Invalid meeting link or place' });
+      }
+      if (!isValidMeetingUrl(placeOrLink)) {
+        return res.status(400).json({ error: 'Invalid meeting URL scheme. Only HTTPS and HTTP are allowed.' });
+      }
     }
     if (date) {
       const when = new Date(date);
@@ -242,8 +282,23 @@ router.patch('/:id', requireAuth, async (req, res) => {
       }
       meeting.date = when;
     }
-    if (agenda !== undefined) meeting.agenda = agenda;
-    if (mode) meeting.mode = mode;
+    if (durationMin !== undefined) {
+      const duration = Number(durationMin);
+      if (!Number.isFinite(duration) || duration < 15 || duration > 480) {
+        return res.status(400).json({ error: 'Duration must be between 15 and 480 minutes' });
+      }
+      meeting.durationMin = duration;
+    }
+    if (agenda !== undefined) {
+      if (typeof agenda !== 'string') return res.status(400).json({ error: 'Invalid agenda' });
+      meeting.agenda = agenda.trim().slice(0, 2000);
+    }
+    if (mode !== undefined) {
+      if (!['online', 'in_person'].includes(mode)) {
+        return res.status(400).json({ error: 'Mode must be online or in_person' });
+      }
+      meeting.mode = mode;
+    }
     if (placeOrLink !== undefined) meeting.placeOrLink = placeOrLink;
     await meeting.save();
     res.json({ meeting });

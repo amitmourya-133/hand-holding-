@@ -1,10 +1,11 @@
-import { Router } from 'express';
 import { Conversation, Message, Connection, User } from '../models.js';
 import { requireAuth } from '../auth.js';
 import { emitToUser } from '../socket.js';
 import { notify } from '../helpers.js';
+import { createRouter } from '../asyncRouter.js';
+import { isValidObjectId } from '../middleware.js';
 
-const router = Router();
+const router = createRouter();
 router.use(requireAuth);
 
 function pairKey(a, b) {
@@ -33,9 +34,12 @@ router.get('/conversations', async (req, res) => {
 router.post('/conversations', async (req, res) => {
   const { partnerId } = req.body;
   if (!partnerId) return res.status(400).json({ error: 'partnerId is required' });
+  if (!isValidObjectId(partnerId)) return res.status(400).json({ error: 'Invalid partner id' });
   if (String(partnerId) === String(req.userId)) return res.status(400).json({ error: 'You cannot chat with yourself' });
 
-  const isSelf = String(req.userId) === String(partnerId);
+  const partnerUser = await User.findById(partnerId).select('_id');
+  if (!partnerUser) return res.status(404).json({ error: 'User not found' });
+
   const linked = await Connection.findOne({
     status: 'accepted',
     $or: [
@@ -44,7 +48,7 @@ router.post('/conversations', async (req, res) => {
     ],
   });
   const isAdmin = req.userRole === 'admin';
-  if (!linked && !isAdmin && !isSelf) {
+  if (!linked && !isAdmin) {
     return res.status(403).json({ error: 'You can only chat with your connected mentor or mentee' });
   }
 
@@ -66,7 +70,10 @@ router.get('/conversations/:id/messages', async (req, res) => {
     return res.status(404).json({ error: 'Conversation not found' });
   }
 
-  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const requestedLimit = Number(req.query.limit);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 100)
+    : 50;
   const messages = await Message.find({ conversation: conversation._id })
     .sort({ createdAt: -1 })
     .limit(limit)
@@ -88,6 +95,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
   try {
     const text = String(req.body.text || '').trim();
     if (!text) return res.status(400).json({ error: 'Message text is required' });
+    if (text.length > 5000) return res.status(400).json({ error: 'Message is too long' });
 
     const conversation = await Conversation.findById(req.params.id);
     if (!conversation || !conversation.participants.some((p) => String(p) === String(req.userId))) {
@@ -125,9 +133,9 @@ router.post('/conversations/:id/messages', async (req, res) => {
 
     if (!hadUnread) {
       const sender = await User.findById(req.userId).select('name');
-      notify(partner, {
+      await notify(partner, {
         type: 'message',
-        title: `New message from ${sender.name}`,
+        title: `New message from ${sender?.name || 'a user'}`,
         body: text.length > 90 ? `${text.slice(0, 90)}...` : text,
         link: '/messages',
       });
