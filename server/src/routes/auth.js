@@ -47,18 +47,21 @@ function csrfTokenValidator(req, res, next) {
 // Rate limiters applied as middleware on specific routes
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
-  message: { error: 'Too many login attempts from this IP, please try again later.' },
+  max: 15,
+  skipSuccessfulRequests: true,
+  message: { error: 'Too many login attempts. Please wait a few minutes and try again.' },
 });
 const registerLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
-  message: { error: 'Too many registration attempts from this IP, please try again later.' },
+  skipSuccessfulRequests: true,
+  message: { error: 'Too many registration attempts. Please wait a few minutes and try again.' },
 });
 const passwordResetLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 3,
-  message: { error: 'Too many password reset attempts from this IP, please try again later.' },
+  skipSuccessfulRequests: true,
+  message: { error: 'Too many password reset attempts. Please wait a few minutes and try again.' },
 });
 
 // CSRF validator middleware - reused across routes
@@ -79,7 +82,7 @@ function generateCSRFToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-router.post('/register', loginLimiter, async (req, res) => {
+router.post('/register', registerLimiter, async (req, res) => {
   try {
     const { name, email, password, role = 'mentee', mentorType = '', department = '', batch = '', company = '', designation = '', skills = [], bio = '' } = req.body;
 

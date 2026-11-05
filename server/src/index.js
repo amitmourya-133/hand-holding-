@@ -31,6 +31,11 @@ const PORT = process.env.PORT || 5000;
 
 const app = express();
 
+// Trust proxy for Render deployment (needed for correct IP identification in rate limiting)
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // CORS configuration - must be first middleware to handle preflight requests
 const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
   ? process.env.CORS_ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
@@ -105,7 +110,8 @@ app.post('/api/csp-report', (req, res) => {
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
-  message: { error: 'Too many requests from this IP, please try again later.' },
+  skipSuccessfulRequests: false,
+  message: { error: 'Too many requests. Please wait a few minutes and try again.' },
 });
 app.use('/api', generalLimiter);
 app.use(express.json({ limit: '1mb' }));
